@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.venv/
+venv/
+*.log
+.env
+
+# tool caches / coverage
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Claude Code project settings
+.claude/
+
+# my config files:
+docker-compose.can-vcan1-r15.yml
+docker/start-can-vcan1-r15.sh
+.local_data/
