@@ -53,6 +53,8 @@ def text_line(tx: UDSTransaction) -> str:
     if tx.status == "nrc" and tx.nrc is not None:
         nrc_label = tx.nrc_name or ""
         status_parts.append(f"NRC=0x{tx.nrc:02X}({nrc_label})")
+    if tx.pending_count:
+        status_parts.append(f"pending×{tx.pending_count}")
 
     status_str = "  ".join(status_parts)
 
@@ -95,6 +97,8 @@ def json_line(tx: UDSTransaction) -> str:
         obj["nrc_name"] = tx.nrc_name
     if tx.duration_ms is not None:
         obj["duration_ms"] = round(tx.duration_ms, 3)
+    if tx.pending_count:
+        obj["pending_count"] = tx.pending_count
     if tx.req_payload is not None:
         obj["req_payload"] = tx.req_payload.hex()
     if tx.rsp_payload is not None:

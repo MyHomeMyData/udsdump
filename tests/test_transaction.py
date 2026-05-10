@@ -74,6 +74,81 @@ class TestNegativeResponse:
         assert tx.duration_ms is not None
 
 
+class TestNRC78Pending:
+    def test_0x78_restarts_timeout(self):
+        """NRC 0x78 must restart the timeout, not close the transaction."""
+        mgr = TransactionManager(ID_PAIRS, timeout=1.0)
+        t0 = 4500.0
+        req = _pad(b"\x03\x22\x01\x00")
+        mgr.feed(0x680, req, t0)
+
+        # ECU sends 0x78 after 0.8 s – transaction must stay open
+        nrc78 = _pad(b"\x03\x7F\x22\x78")
+        assert mgr.feed(0x690, nrc78, t0 + 0.8) is None
+
+        # Original deadline would have expired at t0+1.0, but deadline was reset.
+        # At t0+1.5 (0.7 s after the 0x78) nothing should time out yet.
+        assert mgr.check_timeouts(t0 + 1.5) == []
+
+        # Real positive response arrives at t0+1.9
+        rsp = _pad(b"\x05\x62\x01\x00\xDE\xAD")
+        tx = mgr.feed(0x690, rsp, t0 + 1.9)
+        assert tx is not None
+        assert tx.status == "ok"
+        assert tx.pending_count == 1
+        assert abs(tx.duration_ms - 1900.0) < 1.0
+
+    def test_multiple_0x78_before_final_response(self):
+        mgr = TransactionManager(ID_PAIRS, timeout=1.0)
+        t0 = 4600.0
+        req = _pad(b"\x03\x22\x01\x00")
+        mgr.feed(0x680, req, t0)
+
+        nrc78 = _pad(b"\x03\x7F\x22\x78")
+        mgr.feed(0x690, nrc78, t0 + 0.8)
+        mgr.feed(0x690, nrc78, t0 + 1.6)
+        mgr.feed(0x690, nrc78, t0 + 2.4)
+
+        rsp = _pad(b"\x05\x62\x01\x00\xDE\xAD")
+        tx = mgr.feed(0x690, rsp, t0 + 3.0)
+        assert tx is not None
+        assert tx.status == "ok"
+        assert tx.pending_count == 3
+
+    def test_0x78_does_not_prevent_real_nrc(self):
+        mgr = TransactionManager(ID_PAIRS, timeout=1.0)
+        t0 = 4700.0
+        req = _pad(b"\x03\x22\x01\x00")
+        mgr.feed(0x680, req, t0)
+
+        mgr.feed(0x690, _pad(b"\x03\x7F\x22\x78"), t0 + 0.5)
+
+        # Final response is a real NRC (not 0x78)
+        nrc = _pad(b"\x03\x7F\x22\x22")
+        tx = mgr.feed(0x690, nrc, t0 + 0.9)
+        assert tx is not None
+        assert tx.status == "nrc"
+        assert tx.nrc == 0x22
+        assert tx.pending_count == 1
+
+    def test_timeout_after_0x78_if_no_final_response(self):
+        """If ECU sends 0x78 but then goes silent, timeout must still trigger."""
+        mgr = TransactionManager(ID_PAIRS, timeout=1.0)
+        t0 = 4800.0
+        req = _pad(b"\x03\x22\x01\x00")
+        mgr.feed(0x680, req, t0)
+
+        mgr.feed(0x690, _pad(b"\x03\x7F\x22\x78"), t0 + 0.8)
+
+        # 0.9 s after the 0x78: not yet timed out
+        assert mgr.check_timeouts(t0 + 1.7) == []
+        # 1.1 s after the 0x78: timed out
+        expired = mgr.check_timeouts(t0 + 1.9)
+        assert len(expired) == 1
+        assert expired[0].status == "timeout"
+        assert expired[0].pending_count == 1
+
+
 class TestTimeout:
     def test_expired_request(self):
         mgr = TransactionManager(ID_PAIRS, timeout=1.0)

@@ -151,5 +151,6 @@ class UDSTransaction:
     nrc: int | None = None
     nrc_name: str | None = None
     duration_ms: float | None = None
+    pending_count: int = 0        # number of NRC 0x78 responses before final answer
     req_payload: bytes | None = field(default=None, repr=False)
     rsp_payload: bytes | None = field(default=None, repr=False)

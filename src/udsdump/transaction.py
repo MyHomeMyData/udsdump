@@ -16,15 +16,20 @@ from .isotp import ISOTPAssembler
 from .uds import DecodedUDS, UDSTransaction, decode
 
 
+_NRC_PENDING = 0x78  # requestCorrectlyReceivedResponsePending
+
+
 @dataclass
 class _Pending:
-    timestamp: float       # CAN hardware timestamp (Unix time) – for display
+    timestamp: float       # CAN hardware timestamp of the original request – for display
+    deadline: float        # reset on every NRC 0x78; used for timeout calculation
     req_id: int
     rsp_id: int
     decoded: DecodedUDS
     req_frame_type: str
     req_length: int
     req_payload: bytes | None
+    pending_count: int = 0  # number of NRC 0x78 received so far
 
 
 class TransactionManager:
@@ -101,6 +106,7 @@ class TransactionManager:
         rsp_id = self._req_to_rsp[req_id]
         self._pending[req_id] = _Pending(
             timestamp=timestamp,
+            deadline=timestamp,
             req_id=req_id,
             rsp_id=rsp_id,
             decoded=decoded,
@@ -119,6 +125,15 @@ class TransactionManager:
         timestamp: float,
     ) -> UDSTransaction | None:
         req_id = self._rsp_to_req[rsp_id]
+
+        # NRC 0x78: ECU needs more time – restart timeout, stay pending.
+        if decoded.nrc == _NRC_PENDING:
+            pending = self._pending.get(req_id)
+            if pending is not None:
+                pending.deadline = timestamp
+                pending.pending_count += 1
+            return None
+
         pending = self._pending.pop(req_id, None)
         if pending is None:
             return None
@@ -142,6 +157,7 @@ class TransactionManager:
             nrc=decoded.nrc,
             nrc_name=decoded.nrc_name,
             duration_ms=duration_ms,
+            pending_count=pending.pending_count,
             req_payload=pending.req_payload,
             rsp_payload=payload if self._include_payload else None,
         )
@@ -154,7 +170,7 @@ class TransactionManager:
         expired = [
             req_id
             for req_id, p in self._pending.items()
-            if current_time - p.timestamp >= self._timeout
+            if current_time - p.deadline >= self._timeout
         ]
         transactions = []
         for req_id in expired:
@@ -173,6 +189,7 @@ class TransactionManager:
                     sub_function=p.decoded.sub_function,
                     req_length=p.req_length,
                     rsp_length=0,
+                    pending_count=p.pending_count,
                     req_payload=p.req_payload,
                 )
             )
