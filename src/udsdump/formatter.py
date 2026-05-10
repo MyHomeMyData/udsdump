@@ -34,10 +34,10 @@ def text_line(tx: UDSTransaction) -> str:
 
     extra = ""
     if tx.did is not None:
-        extra = f"DID=0x{tx.did:04X}"
+        extra = f"DID=0x{tx.did:04X} ({tx.did})"
     elif tx.sub_function is not None:
         extra = f"sub=0x{tx.sub_function:02X}"
-    extra = extra.ljust(12)
+    extra = extra.ljust(20)
 
     lengths = f"req=0x{tx.req_length:02X} rsp=0x{tx.rsp_length:02X}"
 
