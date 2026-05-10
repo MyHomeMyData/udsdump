@@ -149,6 +149,45 @@ class TestNRC78Pending:
         assert expired[0].pending_count == 1
 
 
+class TestRequestReplacement:
+    def test_new_request_emits_timeout_for_old_unanswered(self):
+        """A new request for the same pair before the old one times out should
+        immediately emit a timeout for the old request."""
+        mgr = TransactionManager(ID_PAIRS, timeout=5.0)
+        t0 = 5500.0
+        req1 = _pad(b"\x03\x22\x01\x00")
+        assert mgr.feed(0x680, req1, t0) is None  # no previous pending
+
+        # Second request arrives at t0+4 (before 5s timeout)
+        req2 = _pad(b"\x03\x22\x02\x00")
+        tx = mgr.feed(0x680, req2, t0 + 4.0)
+        assert tx is not None
+        assert tx.status == "timeout"
+        assert tx.did == 0x0100
+        assert tx.request_id == 0x680
+        assert tx.response_id == 0x690
+
+    def test_timeout_of_replaced_request_uses_original_timestamp(self):
+        mgr = TransactionManager(ID_PAIRS, timeout=5.0)
+        t0 = 5600.0
+        mgr.feed(0x680, _pad(b"\x03\x22\x01\x00"), t0)
+        tx = mgr.feed(0x680, _pad(b"\x03\x22\x02\x00"), t0 + 4.0)
+        assert tx is not None
+        assert tx.timestamp == t0
+
+    def test_check_timeouts_does_not_duplicate_replaced_request(self):
+        """After the new request emits a timeout for the old one, check_timeouts
+        must not also expire the replaced request."""
+        mgr = TransactionManager(ID_PAIRS, timeout=5.0)
+        t0 = 5700.0
+        mgr.feed(0x680, _pad(b"\x03\x22\x01\x00"), t0)
+        mgr.feed(0x680, _pad(b"\x03\x22\x02\x00"), t0 + 4.0)  # emits timeout for first
+        # Far future – only the second request should time out
+        expired = mgr.check_timeouts(t0 + 20.0)
+        assert len(expired) == 1
+        assert expired[0].did == 0x0200
+
+
 class TestTimeout:
     def test_expired_request(self):
         mgr = TransactionManager(ID_PAIRS, timeout=1.0)

@@ -93,6 +93,8 @@ ID pair configuration (mutually exclusive):
   --id-range MIN:MAX           CAN ID range to monitor (hex).
                                Used with --response-offset.  (default: 0x600:0x6FF)
                                Ignored when --id-pair is used.
+  --ignore-requesters IDS      Comma-separated hex CAN IDs to exclude as
+                               requesters (e.g. 0x691,0x696).
 
 Behaviour:
   --timeout, -t SECONDS        Response timeout in seconds  (default: 1.0)
@@ -120,6 +122,13 @@ udsdump --channel can0 --response-offset 0x10 --id-range 0x680:0x6B1
 
 ```bash
 udsdump --channel can0 --id-pair 0x7DF:0x7E8 --id-pair 0x712:0x733
+```
+
+**Ignoring specific requesters:** Some CAN nodes send requests that are outside the monitored topology (e.g. they communicate with a peer whose response arrives on a different ID than expected). Use `--ignore-requesters` to exclude them entirely.
+
+```bash
+# Viessmann E3: suppress noise from 0x691 and 0x696
+udsdump --channel can0 --ignore-requesters 0x691,0x696
 ```
 
 ## Output Format
@@ -287,7 +296,7 @@ pip install pytest
 pytest
 ```
 
-65 tests cover the ISO-TP reassembler, the UDS decoder, the transaction manager (pairing, timeouts, NRC 0x78, parallel sessions, multi-frame handling), and the statistics collector.
+81 tests cover the ISO-TP reassembler, the UDS decoder, the transaction manager (pairing, timeouts, NRC 0x78, parallel sessions, multi-frame handling), the statistics collector, and the ignore-requesters filter.
 
 ## Acknowledgements
 

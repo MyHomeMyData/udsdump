@@ -23,12 +23,14 @@ def _build_id_pairs(
     id_range: tuple[int, int],
     response_offset: int,
     explicit_pairs: list[tuple[int, int]] | None,
+    ignore_req_ids: set[int] | None = None,
 ) -> dict[int, int]:
     """Return {req_id: rsp_id} from offset+range or explicit pairs."""
+    ignore = ignore_req_ids or set()
     if explicit_pairs:
-        return dict(explicit_pairs)
+        return {req: rsp for req, rsp in explicit_pairs if req not in ignore}
     lo, hi = id_range
-    return {req: req + response_offset for req in range(lo, hi + 1)}
+    return {req: req + response_offset for req in range(lo, hi + 1) if req not in ignore}
 
 
 class UDSMonitor:
@@ -63,12 +65,13 @@ class UDSMonitor:
         response_offset: int = 0x10,
         id_range: tuple[int, int] = (0x600, 0x6FF),
         explicit_pairs: list[tuple[int, int]] | None = None,
+        ignore_req_ids: set[int] | None = None,
         timeout: float = 1.0,
         include_payload: bool = False,
     ) -> None:
         self._bus_kwargs = dict(interface=interface, channel=channel, bitrate=bitrate)
         self._timeout = timeout
-        id_pairs = _build_id_pairs(id_range, response_offset, explicit_pairs)
+        id_pairs = _build_id_pairs(id_range, response_offset, explicit_pairs, ignore_req_ids)
         self._manager = TransactionManager(
             id_pairs=id_pairs,
             timeout=timeout,

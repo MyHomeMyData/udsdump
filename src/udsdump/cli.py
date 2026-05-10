@@ -49,6 +49,23 @@ def _parse_id_range(value: str) -> tuple[int, int]:
     return lo, hi
 
 
+def _parse_ignore_requesters(value: str | None) -> set[int]:
+    if not value:
+        return set()
+    result = set()
+    for part in value.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            result.add(int(part, 16))
+        except ValueError:
+            raise SystemExit(
+                f"error: --ignore-requesters value {part!r} is not a valid hex integer"
+            )
+    return result
+
+
 def _parse_breakdown(value: str | None) -> list[str]:
     if not value:
         return []
@@ -96,6 +113,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=(0x600, 0x6FF),
         help="CAN ID range to monitor (hex, default: 0x600:0x6FF). "
              "Ignored when --id-pair is used.",
+    )
+
+    p.add_argument(
+        "--ignore-requesters", metavar="IDS",
+        help="Comma-separated hex CAN IDs to ignore as requesters "
+             "(e.g. 0x691,0x696). "
+             "Frames from these IDs are not tracked.",
     )
 
     # Behaviour
@@ -157,6 +181,7 @@ def main() -> None:
     args = parser.parse_args()
 
     breakdown = _parse_breakdown(args.stats_breakdown)
+    ignore_req_ids = _parse_ignore_requesters(args.ignore_requesters)
     stats_enabled = bool(args.no_transactions or args.stats_interval or breakdown)
     collector = StatsCollector(breakdown) if stats_enabled else None
 
@@ -169,6 +194,7 @@ def main() -> None:
         response_offset=args.response_offset,
         id_range=args.id_range,
         explicit_pairs=args.id_pairs,
+        ignore_req_ids=ignore_req_ids,
         timeout=args.timeout,
         include_payload=args.payload,
     )

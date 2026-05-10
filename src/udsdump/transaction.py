@@ -102,8 +102,9 @@ class TransactionManager:
         frame_type: str,
         payload: bytes,
         timestamp: float,
-    ) -> None:
+    ) -> UDSTransaction | None:
         rsp_id = self._req_to_rsp[req_id]
+        evicted = self._pending.pop(req_id, None)
         self._pending[req_id] = _Pending(
             timestamp=timestamp,
             deadline=timestamp,
@@ -114,7 +115,24 @@ class TransactionManager:
             req_length=len(payload),
             req_payload=payload if self._include_payload else None,
         )
-        return None
+        if evicted is None:
+            return None
+        return UDSTransaction(
+            timestamp=evicted.timestamp,
+            request_id=evicted.req_id,
+            response_id=evicted.rsp_id,
+            service_id=evicted.decoded.service_id,
+            service_name=evicted.decoded.service_name,
+            req_frame_type=evicted.req_frame_type,
+            rsp_frame_type=None,
+            status="timeout",
+            did=evicted.decoded.did,
+            sub_function=evicted.decoded.sub_function,
+            req_length=evicted.req_length,
+            rsp_length=0,
+            pending_count=evicted.pending_count,
+            req_payload=evicted.req_payload,
+        )
 
     def _handle_response(
         self,
