@@ -5,14 +5,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+import time
 
 from .formatter import json_line, text_line
 from .monitor import UDSMonitor
+from .stats import StatsCollector
+from .stats_formatter import format_interval, format_summary
 from .uds import UDSTransaction
 
 
 def _parse_id_pair(value: str) -> tuple[int, int]:
-    """Parse 'REQ:RSP' or 'REQ-RSP' into (int, int)."""
     sep = ":" if ":" in value else "-"
     parts = value.split(sep)
     if len(parts) != 2:
@@ -28,7 +30,6 @@ def _parse_id_pair(value: str) -> tuple[int, int]:
 
 
 def _parse_id_range(value: str) -> tuple[int, int]:
-    """Parse 'MIN:MAX' or 'MIN-MAX' into (int, int)."""
     sep = ":" if ":" in value else "-"
     parts = value.split(sep)
     if len(parts) != 2:
@@ -42,8 +43,23 @@ def _parse_id_range(value: str) -> tuple[int, int]:
             f"ID range values must be hex integers, got: {value!r}"
         )
     if lo > hi:
-        raise argparse.ArgumentTypeError(f"ID range MIN must be <= MAX, got: {value!r}")
+        raise argparse.ArgumentTypeError(
+            f"ID range MIN must be <= MAX, got: {value!r}"
+        )
     return lo, hi
+
+
+def _parse_breakdown(value: str | None) -> list[str]:
+    if not value:
+        return []
+    parts = [p.strip().lower() for p in value.split(",")]
+    for p in parts:
+        if p not in {"pair", "service"}:
+            raise SystemExit(
+                f"error: invalid --stats-breakdown key {p!r}. "
+                "Valid values: pair, service"
+            )
+    return parts
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -75,7 +91,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=0x10,
         help="Response ID = request ID + OFFSET (hex, default: 0x10)",
     )
-
     p.add_argument(
         "--id-range", metavar="MIN:MAX", type=_parse_id_range,
         default=(0x600, 0x6FF),
@@ -89,27 +104,63 @@ def build_parser() -> argparse.ArgumentParser:
         help="Response timeout in seconds (default: 1.0)",
     )
 
-    # Output
+    # Transaction output
+    p.add_argument("--json", action="store_true",
+                   help="Output one JSON object per line instead of text")
+    p.add_argument("--payload", action="store_true",
+                   help="Include raw UDS payload bytes in output (hex)")
     p.add_argument(
-        "--json", action="store_true",
-        help="Output one JSON object per line instead of text",
+        "--no-transactions", action="store_true",
+        help="Suppress per-transaction output (statistics only)",
+    )
+
+    # Statistics
+    p.add_argument(
+        "--stats-interval", metavar="N", type=float,
+        help="Print periodic statistics every N seconds",
     )
     p.add_argument(
-        "--payload", action="store_true",
-        help="Include raw UDS payload bytes in output (hex)",
+        "--stats-breakdown", metavar="KEY",
+        help="Break down statistics by: pair, service, or pair,service",
     )
 
     return p
+
+
+async def _periodic_stats(
+    collector: StatsCollector,
+    interval_s: float,
+    breakdown: list[str],
+) -> None:
+    while True:
+        await asyncio.sleep(interval_s)
+        snap = collector.snapshot_and_reset_interval(time.time())
+        print(format_interval(snap, breakdown), file=sys.stderr, flush=True)
+
+
+async def _run(
+    monitor: UDSMonitor,
+    collector: StatsCollector | None,
+    stats_interval: float | None,
+    breakdown: list[str],
+) -> None:
+    tasks: list[asyncio.Task] = [asyncio.create_task(monitor.run())]
+    if collector is not None and stats_interval:
+        tasks.append(
+            asyncio.create_task(_periodic_stats(collector, stats_interval, breakdown))
+        )
+    await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    formatter = json_line if args.json else text_line
+    breakdown = _parse_breakdown(args.stats_breakdown)
+    stats_enabled = bool(args.no_transactions or args.stats_interval or breakdown)
+    collector = StatsCollector(breakdown) if stats_enabled else None
 
-    def on_transaction(tx: UDSTransaction) -> None:
-        print(formatter(tx), flush=True)
+    fmt = json_line if args.json else text_line
 
     monitor = UDSMonitor(
         interface=args.interface,
@@ -121,9 +172,24 @@ def main() -> None:
         timeout=args.timeout,
         include_payload=args.payload,
     )
-    monitor.on_transaction(on_transaction)
 
+    if not args.no_transactions:
+        monitor.on_transaction(lambda tx: print(fmt(tx), flush=True))
+    if collector is not None:
+        monitor.on_transaction(collector.add)
+
+    t_start = time.time()
     try:
-        asyncio.run(monitor.run())
+        asyncio.run(_run(monitor, collector, args.stats_interval, breakdown))
     except KeyboardInterrupt:
-        sys.exit(0)
+        pass
+    finally:
+        if collector is not None:
+            snap = collector.overall_snapshot()
+            runtime = time.time() - t_start
+            print(
+                format_summary(snap, runtime, breakdown),
+                file=sys.stderr,
+                flush=True,
+            )
+    sys.exit(0)
