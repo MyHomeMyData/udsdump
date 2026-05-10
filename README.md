@@ -5,11 +5,11 @@ A command-line tool for monitoring **UDS (Unified Diagnostic Services) traffic o
 While `candump` shows raw CAN frames, `udsdump` works at the UDS service level: it reassembles ISO-TP multi-frame messages, identifies request/response pairs, and outputs one line per complete UDS transaction with decoded metadata (service name, DID, sub-function, NRC, latency).
 
 ```
-11:04:25.131  0x0680→0x0690  ReadDataByIdentifier          DID=0x0100    req=0x03 rsp=0x22  dt=8.0ms     SF/MF  ok
-11:04:25.209  0x0680→0x0690  WriteDataByIdentifier         DID=0x023A    req=0x07 rsp=0x03  dt=12.3ms    MF/SF  ok
-11:04:25.308  0x0680→0x0690  DiagnosticSessionControl      sub=0x01      req=0x02 rsp=0x02  dt=5.1ms     SF/SF  ok
-11:04:26.416  0x0680→0x0690  ReadDataByIdentifier          DID=0x0200    req=0x03 rsp=0x00              SF     timeout
-11:04:26.524  0x0680→0x0690  SecurityAccess                sub=0x01      req=0x02 rsp=0x03  dt=6.7ms     SF/SF  nrc  NRC=0x35(invalidKey)
+11:04:25.131  0x0680→0x0690  ReadDataByIdentifier          DID=0x0100 (256)    req=0x03 rsp=0x22  dt=8.0ms     SF/MF  ok
+11:04:25.209  0x0680→0x0690  WriteDataByIdentifier         DID=0x023A (570)    req=0x07 rsp=0x03  dt=12.3ms    MF/SF  ok
+11:04:25.308  0x0680→0x0690  DiagnosticSessionControl      sub=0x01            req=0x02 rsp=0x02  dt=5.1ms     SF/SF  ok
+11:04:26.416  0x0680→0x0690  ReadDataByIdentifier          DID=0x0200 (512)    req=0x03 rsp=0x00               SF     timeout
+11:04:26.524  0x0680→0x0690  SecurityAccess                sub=0x01            req=0x02 rsp=0x03  dt=6.7ms     SF/SF  nrc  NRC=0x35(invalidKey)
 ```
 
 ## Features
@@ -18,6 +18,8 @@ While `candump` shows raw CAN frames, `udsdump` works at the UDS service level: 
 - **ISO-TP reassembly** — handles Single Frame and Multi-Frame messages transparently; `SF/MF` in the output shows the frame type of each direction
 - **Parallel conversations** — multiple simultaneous UDS sessions on different ID pairs are handled independently
 - **Status metadata** — every line reports the outcome: `ok`, `nrc` (negative response with code and name), or `timeout`
+- **NRC 0x78 handling** — ResponsePending is treated correctly: the timeout is restarted, the transaction stays open, and the final `pending_count` is reported
+- **Traffic statistics** — periodic and final summary with latency percentiles, success rates, and optional breakdown by ID pair and/or service
 - **Optional raw payload** — `--payload` appends the raw UDS bytes as hex strings
 - **JSON output** — `--json` for machine-readable output (only non-empty fields)
 - **Flexible ID configuration** — automatic offset mode (default `req + 0x10 = rsp`) or explicit ID pairs
@@ -66,6 +68,12 @@ JSON output, piped to `jq` for filtering:
 udsdump --channel can0 --json | jq 'select(.status == "nrc")'
 ```
 
+Statistics only, printed every 5 minutes:
+
+```bash
+udsdump --channel can0 --stats-interval 300 --no-transactions
+```
+
 ## CLI Reference
 
 ```
@@ -89,9 +97,14 @@ ID pair configuration (mutually exclusive):
 Behaviour:
   --timeout, -t SECONDS        Response timeout in seconds  (default: 1.0)
 
-Output:
+Transaction output:
   --json                       One JSON object per line instead of text
   --payload                    Append raw UDS payload bytes (hex) to each line
+  --no-transactions            Suppress per-transaction output (statistics only)
+
+Statistics:
+  --stats-interval N           Print periodic statistics every N seconds
+  --stats-breakdown KEY        Break down statistics by: pair, service, or pair,service
 ```
 
 ### ID pair configuration
@@ -114,7 +127,7 @@ udsdump --channel can0 --id-pair 0x7DF:0x7E8 --id-pair 0x712:0x733
 ### Text (default)
 
 ```
-HH:MM:SS.mmm  REQ_ID→RSP_ID  ServiceName              [DID=0xNNNN|sub=0xNN]  req=0xNN rsp=0xNN  [dt=N.Nms]  FT  status  [NRC]
+HH:MM:SS.mmm  REQ_ID→RSP_ID  ServiceName              [DID=0xNNNN (DDD)|sub=0xNN]  req=0xNN rsp=0xNN  [dt=N.Nms]  FT  status  [NRC]
 ```
 
 | Field | Description |
@@ -122,12 +135,14 @@ HH:MM:SS.mmm  REQ_ID→RSP_ID  ServiceName              [DID=0xNNNN|sub=0xNN]  r
 | `HH:MM:SS.mmm` | Timestamp of the request |
 | `REQ_ID→RSP_ID` | CAN ID pair (hex) |
 | `ServiceName` | UDS service (e.g. `ReadDataByIdentifier`) |
-| `DID=0x…` / `sub=0x…` | Data Identifier or sub-function (where applicable) |
+| `DID=0x… (DDD)` | Data Identifier in hex and decimal |
+| `sub=0x…` | Sub-function where applicable |
 | `req=0xNN` / `rsp=0xNN` | Payload length in bytes (hex) |
 | `dt=N.Nms` | Round-trip latency; absent on timeout |
 | `FT` | Frame type: `SF/SF`, `SF/MF`, `MF/SF`, `MF/MF`, or just `SF`/`MF` on timeout |
 | `status` | `ok`, `nrc`, or `timeout` |
 | `NRC=0xNN(name)` | NRC code and name on `nrc` status |
+| `pending×N` | Number of NRC 0x78 (ResponsePending) received before final answer |
 
 With `--payload`, two additional hex fields are appended: `req_data=…  rsp_data=…`.
 
@@ -143,6 +158,73 @@ Timeout example:
 
 ```json
 {"timestamp": 1746789866.416, "request_id": 1664, "response_id": 1680, "service_id": 34, "service_name": "ReadDataByIdentifier", "req_frame_type": "SF", "status": "timeout", "did": 512, "req_length": 3}
+```
+
+## Statistics
+
+When any `--stats-*` flag or `--no-transactions` is set, udsdump collects traffic statistics. Transaction lines are written to **stdout**; statistics are written to **stderr** — the two streams never mix, so JSON piping remains clean.
+
+A final summary is always printed on `Ctrl+C`.
+
+### Periodic intervals
+
+```bash
+# Print stats every 60 seconds, with breakdown by ID pair
+udsdump --channel can0 --stats-interval 60 --stats-breakdown pair
+```
+
+```
+────────────────────────────────────────────────────────────────────────────────
+Stats [11:05:00 – 11:06:00] (60s)
+Transactions   total=28    ok=26    nrc=1    timeout=1    rate=0.47/s  success=92.9%
+  NRC            conditionsNotCorrect=1
+Latency (ok)   min=5.1ms  mean=14.3ms  median=12.1ms  p95=38.2ms  max=45.2ms
+By ID pair:
+  0x0680→0x0690   ok=24   nrc=1   timeout=1    min=5.1ms  mean=14.3ms  ...
+  0x06A1→0x06B1   ok=2    nrc=0   timeout=0    min=6.2ms  mean=8.1ms   ...
+────────────────────────────────────────────────────────────────────────────────
+```
+
+### Final summary
+
+```
+════════════════════════════════════════════════════════════════════════════════
+Summary (runtime: 5m 23s)
+Transactions   total=142   ok=135   nrc=3    timeout=2    rate=0.44/s  success=95.1%
+  NRC            conditionsNotCorrect=2  invalidKey=1
+  Pending 0x78   4 transaction(s)
+Latency (ok)   min=4.2ms  mean=18.7ms  median=12.3ms  p95=89.1ms  max=312.5ms
+By service:
+  ReadDataByIdentifier      ok=115  nrc=2   timeout=1    min=4.2ms  mean=15.1ms  p95=89.1ms  max=312.5ms
+  TesterPresent             ok=20   nrc=0   timeout=0    min=4.5ms  mean=5.3ms   p95=7.2ms   max=8.1ms
+  DiagnosticSessionControl  ok=5    nrc=1   timeout=1    min=12.1ms mean=21.3ms  p95=45.2ms  max=48.0ms
+════════════════════════════════════════════════════════════════════════════════
+```
+
+### Statistics-only mode
+
+Suppress transaction lines entirely and collect a summary over the full run:
+
+```bash
+udsdump --channel can0 --no-transactions --stats-breakdown pair,service
+```
+
+Or combine with periodic output:
+
+```bash
+udsdump --channel can0 --no-transactions --stats-interval 300 --stats-breakdown service
+```
+
+### Combining with JSON
+
+Statistics always appear as human-readable text on stderr, regardless of `--json`. This allows clean downstream processing:
+
+```bash
+# JSON transactions to file, stats visible on terminal
+udsdump --channel can0 --json --stats-interval 60 > transactions.jsonl
+
+# Filter NRC events while monitoring stats
+udsdump --channel can0 --json --stats-breakdown pair | jq 'select(.status == "nrc")'
 ```
 
 ## Decoded UDS Services
@@ -205,7 +287,7 @@ pip install pytest
 pytest
 ```
 
-36 tests cover the ISO-TP reassembler, the UDS decoder, and the transaction manager (pairing, timeouts, parallel sessions, multi-frame handling).
+65 tests cover the ISO-TP reassembler, the UDS decoder, the transaction manager (pairing, timeouts, NRC 0x78, parallel sessions, multi-frame handling), and the statistics collector.
 
 ## Acknowledgements
 
