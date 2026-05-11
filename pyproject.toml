@@ -6,11 +6,33 @@ build-backend = "setuptools.build_meta"
 name = "udsdump"
 version = "0.1.0"
 description = "UDS-on-CAN traffic monitor – one layer above candump"
+readme = "README.md"
 license = {file = "LICENSE"}
+authors = [
+    {name = "MyHomeMyData", email = "juergen.bonfert@gmail.com"},
+]
 requires-python = ">=3.10"
 dependencies = [
     "python-can>=4.3",
 ]
+keywords = ["can", "uds", "iso-tp", "automotive", "diagnostics", "candump"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Embedded Systems",
+    "Topic :: System :: Monitoring",
+]
+
+[project.urls]
+Homepage = "https://github.com/MyHomeMyData/udsdump"
+Source = "https://github.com/MyHomeMyData/udsdump"
+"Bug Tracker" = "https://github.com/MyHomeMyData/udsdump/issues"
 
 [project.scripts]
 udsdump = "udsdump.cli:main"

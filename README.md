@@ -302,6 +302,18 @@ pytest
 
 The ISO-TP reassembler is adapted from [E3onCANserver](https://github.com/MyHomeMyData/E3onCANserver) by the same author.
 
+## Changelog
+
+### 0.1.0 — 2026-05-11
+
+- Initial release
+- ISO-TP reassembly (SF and MF), one line per UDS transaction
+- NRC 0x78 (ResponsePending) handling: timeout is restarted, transaction stays open, final `pending_count` is reported
+- Traffic statistics with periodic intervals and final summary; optional breakdown by ID pair and/or service
+- `--ignore-requesters` to suppress noisy requester IDs whose responses never arrive
+- JSON output (`--json`), raw payload option (`--payload`)
+- 81 tests
+
 ## License
 MIT License
 
