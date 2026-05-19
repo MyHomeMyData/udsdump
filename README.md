@@ -32,10 +32,14 @@ While `candump` shows raw CAN frames, `udsdump` works at the UDS service level: 
 
 ## Installation
 
-Install directly from GitHub:
+```bash
+pip install udsdump
+```
+
+To pin a specific version:
 
 ```bash
-pip install git+https://github.com/MyHomeMyData/udsdump.git
+pip install udsdump==0.1.0
 ```
 
 For local development, clone the repository and install in editable mode:
