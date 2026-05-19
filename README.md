@@ -39,7 +39,7 @@ pip install udsdump
 To pin a specific version:
 
 ```bash
-pip install udsdump==0.1.0
+pip install udsdump==0.1.1
 ```
 
 For local development, clone the repository and install in editable mode:
@@ -307,6 +307,11 @@ pytest
 The ISO-TP reassembler is adapted from [E3onCANserver](https://github.com/MyHomeMyData/E3onCANserver) by the same author.
 
 ## Changelog
+
+### 0.1.1 — 2026-05-19
+
+- Update installation docs for PyPI release
+- Fix publish workflow to target pypi.org
 
 ### 0.1.0 — 2026-05-11
 

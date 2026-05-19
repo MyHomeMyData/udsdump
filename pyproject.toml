@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "udsdump"
-version = "0.1.0"
+version = "0.1.1"
 description = "UDS-on-CAN traffic monitor – one layer above candump"
 readme = "README.md"
 license = {file = "LICENSE"}
